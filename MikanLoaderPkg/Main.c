@@ -269,22 +269,40 @@ EFI_STATUS EFIAPI UefiMain(
         status = GetMemoryMap(&memmap);
         if (EFI_ERROR(status)) {
             Print(L"failed to get memory map: %r\n", status);
-            while (1);
+            Halt();
         }
         status = gBS->ExitBootServices(image_handle, memmap.map_key);
         if (EFI_ERROR(status)) {
             Print(L"Could not exit boot service: %r\n", status);
-            while (1);
+            Halt();
         }
     }
 
 
     // call kernel
     UINT64 entry_addr = *(UINT64*)(kernel_base_addr + 24);
+    struct FrameBufferConfig config = {
+        (UINT8*)gop->Mode->FrameBufferBase,
+        gop->Mode->Info->PixelsPerScanLine,
+        gop->Mode->Info->HorizontalResolution,
+        gop->Mode->Info->VerticalResolution,
+        0
+    };
+    switch (gop->Mode->Info->PixelFormat) {
+        case PixelRedGreenBlueReserved8BitPerColor:
+            config.pixel_format = kPixelRGBResv8BitPerColor;
+            break;
+        case PixelBlueGreenRedReserved8BitPerColor:
+            config.pixel_format = kPixelBGRResv8BitPerColor;
+            break;
+        default:
+            Print(L"Unimplemented pixel format: %d\n", gop->Mode->Info->PixelFormat);
+            Halt();
+    }
     //typedef void EntryPointType(UINT64, UINT64);
-    typedef void __attribute__((sysv_abi)) EntryPointType(UINT64, UINT64);
+    typedef void __attribute__((sysv_abi)) EntryPointType(const struct FrameBufferConfig*);
     EntryPointType* entry_point = (EntryPointType*)entry_addr;
-    entry_point(gop->Mode->FrameBufferBase, gop->Mode->FrameBufferSize);
+    entry_point(&config);
 
 
     Print(L"All done\n");
