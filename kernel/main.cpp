@@ -1,74 +1,16 @@
+/**
+ * @file main.cpp
+ *
+ * カーネル本体のプログラムを書いたファイル
+ */
+
 #include <cstdint>
 #include <cstddef>
+#include <cstdio>
 
 #include "frame_buffer_config.hpp"
-
-struct PixelColor {
-    uint8_t r, g, b;
-};
-
-class PixelWriter {
-    public:
-        PixelWriter(const FrameBufferConfig& config) : config_{config} {
-        }
-        virtual ~PixelWriter() = default;
-        virtual void Write(int x, int y, const PixelColor& c) = 0;
-
-    protected:
-        uint8_t* PixelAt(int x, int y) {
-            return config_.frame_buffer + 4 * (config_.pixels_per_scan_line * y + x);
-        }
-
-    private:
-        const FrameBufferConfig& config_;
-};
-
-class RGBResv8BitPerColorPixelWriter : public PixelWriter {
-    public:
-        using PixelWriter::PixelWriter;
-
-        virtual void Write(int x, int y, const PixelColor& c) override {
-            auto p = PixelAt(x, y);
-            p[0] = c.r;
-            p[1] = c.g;
-            p[2] = c.b;
-        }
-};
-
-class BGRResv8BitPerColorPixelWriter : public PixelWriter {
-    public:
-        using PixelWriter::PixelWriter;
-
-        virtual void Write(int x, int y, const PixelColor& c) override {
-            auto p = PixelAt(x, y);
-            p[0] = c.b;
-            p[1] = c.g;
-            p[2] = c.r;
-        }
-};
-
-/**
- * WritePixel は1つの点を描画します。
- * @retval 0   成功
- * @revval 非0 失敗
- */
-int WritePixel(const FrameBufferConfig& config, int x, int y, const PixelColor& c) {
-    const int pixel_position = config.pixels_per_scan_line * y + x;
-    if (config.pixel_format == kPixelRGBResv8BitPerColor) {
-        uint8_t* p = &config.frame_buffer[4 * pixel_position]; // 1ピクセル4バイト
-        p[0] = c.r;
-        p[1] = c.g;
-        p[2] = c.b;
-    } else if (config.pixel_format == kPixelBGRResv8BitPerColor) {
-        uint8_t* p = &config.frame_buffer[4 * pixel_position];
-        p[0] = c.b;
-        p[1] = c.g;
-        p[2] = c.r;
-    } else {
-        return -1;
-    }
-    return 0;
-}
+#include "graphics.hpp"
+#include "font.hpp"
 
 /**
  * 配置new
@@ -105,5 +47,16 @@ extern "C" void KernelMain(const FrameBufferConfig& frame_buffer_config) {
             pixel_writer->Write(x, y, {0, 255, 0});
         }
     }
+
+    int i = 0;
+    for (char c = '!'; c <= '~'; ++c, ++i) {
+        WriteAscii(*pixel_writer, 8 * i, 50, c, {0, 0, 0});
+    }
+    WriteString(*pixel_writer, 0, 66, "Hello, World!", {0, 0, 255});
+
+    char buf[128];
+    sprintf(buf, "1 + 2 = %d", 1 + 2);
+    WriteString(*pixel_writer, 0, 82, buf, {0, 0, 0});
+
     while (1) __asm__("hlt");
 }
