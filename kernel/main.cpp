@@ -13,15 +13,18 @@
 #include "graphics.hpp"
 #include "font.hpp"
 #include "console.hpp"
+#include "pci.hpp"
 
-/**
- * 配置new
- * OSがないベアメタル環境でOSにメモリ確保を依頼できないため、配置newが必要
- * <new>をインクルードするのではなく自前実装してる
- */
-void* operator new(size_t size, void* buf) {
-    return buf;
-}
+// pci.hppで<array>をincludeしたら、<new>にも依存することになったのでコメントアウト
+//
+// /**
+//  * 配置new
+//  * OSがないベアメタル環境でOSにメモリ確保を依頼できないため、配置newが必要
+//  * <new>をインクルードするのではなく自前実装してる
+//  */
+// void* operator new(size_t size, void* buf) {
+//     return buf;
+// }
 
 void operator delete(void* obj) noexcept {
 }
@@ -119,6 +122,18 @@ extern "C" void KernelMain(const FrameBufferConfig& frame_buffer_config) {
                 pixel_writer->Write(200 + dx, 100 + dy, {255, 255, 255});
             }
         }
+    }
+
+    auto err = pci::ScanAllBus();
+    printk("ScalAllBus: %s\n", err.Name());
+
+    for (int i = 0; i < pci::num_device; ++i) {
+        const auto& dev = pci::devices[i];
+        auto vendor_id = pci::ReadVendorId(dev.bus, dev.device, dev.function);
+        auto class_code = pci::ReadClassCode(dev.bus, dev.device, dev.function);
+        printk("%d.%d.%d: vend %04x, class %08x, head %02x\n",
+                dev.bus, dev.device, dev.function,
+                vendor_id, class_code, dev.header_type);
     }
 
     while (1) __asm__("hlt");
