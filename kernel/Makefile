@@ -2,7 +2,7 @@
 TARGET = kernel.elf
 
 # リンク対象のオブジェクトファイル一覧
-OBJS = main.o graphics.o font.o hankaku.o newlib_support.o console.o pci.o asmfunc.o
+OBJS = main.o graphics.o font.o hankaku.o newlib_support.o console.o pci.o asmfunc.o logger.o
 
 # ヘッダファイルの依存関係ファイル一覧 (.main.d, .graphics.d, .font.d)
 # カレントディレクトリが散らからないよう、先頭にドット '.' を付与した隠しファイル名を動的に生成
