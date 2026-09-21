@@ -136,5 +136,21 @@ extern "C" void KernelMain(const FrameBufferConfig& frame_buffer_config) {
                 vendor_id, class_code, dev.header_type);
     }
 
+    pci::Device* xhc_dev = nullptr;
+    for (int i = 0; i < pci::num_device; ++i) {
+        // ベースクラス 0x0c (シリアルバスのコントローラ全体), サブクラス 0x03 (USB), インタフェース 0x03 (xHCI)
+        if (pci::devices[i].class_code.Match(0x0cu, 0x03u, 0x30u)) {
+            xhc_dev = &pci::devices[i];
+
+            // Intel製を優先してxHCを探す（著者の経験上、Intel製がメインのコントローラである可能性が高いらしい）
+            if (0x8086 == pci::ReadVendorId(*xhc_dev)) {
+                break;
+            }
+        }
+    }
+    if (xhc_dev) {
+        printk("xHC has been found: %d.%d.%d\n", xhc_dev->bus, xhc_dev->device, xhc_dev->function);
+    }
+
     while (1) __asm__("hlt");
 }
