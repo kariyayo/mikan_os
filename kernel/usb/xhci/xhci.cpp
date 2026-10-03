@@ -156,8 +156,7 @@ namespace {
             return MAKE_ERROR(Error::kInvalidSlotID);
         }
 
-        memset(&dev->InputContext()->input_control_context, 0,
-                sizeof(InputControlContext));
+        memset(dev->InputContext(), 0, sizeof(InputContext));
 
         const auto ep0_dci = DeviceContextIndex(0, false);
         auto slot_ctx = dev->InputContext()->EnableSlotContext();
@@ -237,7 +236,8 @@ namespace {
             return err;
         }
 
-        const auto port_id = dev->DeviceContext()->slot_context.bits.root_hub_port_num;
+        const auto port_id = dev->DeviceContext()->GetSlotContext()->bits.root_hub_port_num;
+
         // Device::InitializePhase3()後は dev->IsInitialized() がtrue
         if (dev->IsInitialized() &&
                 port_config_phase[port_id] == ConfigPhase::kInitializingDevice) {
@@ -264,7 +264,7 @@ namespace {
             if (dev == nullptr) {
                 return MAKE_ERROR(Error::kInvalidSlotID);
             }
-            auto port_id = dev->DeviceContext()->slot_context.bits.root_hub_port_num;
+            auto port_id = dev->DeviceContext()->GetSlotContext()->bits.root_hub_port_num;
             if (port_id != addressing_port) {
                 Log(kInfo, "CommandCompletionEvent: port_id = %d, addressing_port = %d\n",
                     port_id, addressing_port);
@@ -291,7 +291,7 @@ namespace {
             if (dev == nullptr) {
                 return MAKE_ERROR(Error::kInvalidSlotID);
             }
-            auto port_id = dev->DeviceContext()->slot_context.bits.root_hub_port_num;
+            auto port_id = dev->DeviceContext()->GetSlotContext()->bits.root_hub_port_num;
             if (port_config_phase[port_id] != ConfigPhase::kConfiguringEndpoints) {
                 return MAKE_ERROR(Error::kInvalidPhase);
             }
@@ -484,14 +484,14 @@ namespace usb::xhci {
         const auto configs = dev.EndpointConfigs();
         const auto len = dev.NumEndpointConfigs();
 
-        memset(&dev.InputContext()->input_control_context, 0, sizeof(InputControlContext));
-        memcpy(&dev.InputContext()->slot_context,
-                &dev.DeviceContext()->slot_context, sizeof(SlotContext));
+        memset(dev.InputContext()->GetInputControlContext(), 0, sizeof(InputControlContext));
+        memcpy(dev.InputContext()->GetSlotContext(),
+                dev.DeviceContext()->GetSlotContext(), sizeof(SlotContext));
 
         // SlotContextを更新したい
         auto slot_ctx = dev.InputContext()->EnableSlotContext();
         slot_ctx->bits.context_entries = 31; // 本当は有効にするエンドポイント番号を計算するが、最大値をセットする
-        const auto port_id{dev.DeviceContext()->slot_context.bits.root_hub_port_num};
+        const auto port_id{dev.DeviceContext()->GetSlotContext()->bits.root_hub_port_num};
         const int port_speed{xhc.PortAt(port_id).Speed()};
         if (port_speed == 0 || port_speed > kSuperSpeedPlus) {
             return MAKE_ERROR(Error::kUnknownXHCISpeedID);
