@@ -90,9 +90,18 @@ namespace usb::xhci {
     DeviceContextIndex& operator =(const DeviceContextIndex& rhs) = default;
   };
 
+  // 実機+PCIeカードで動かすのに必要だった
+  extern bool is_csz1;
+
   struct DeviceContext {
-    SlotContext slot_context;
-    EndpointContext ep_contexts[31]; // DCI 1~31 を格納する
+    uint8_t buf[2048];
+
+    SlotContext* GetSlotContext() {
+      return reinterpret_cast<SlotContext*>(buf);
+    }
+    EndpointContext* GetEndpointContext(int i) {
+      return reinterpret_cast<EndpointContext*>(buf + (is_csz1 ? 64 : 32) + i * (is_csz1 ? 64 : 32));
+    }
   } __attribute__((packed));
 
   struct InputControlContext {
@@ -106,17 +115,25 @@ namespace usb::xhci {
   } __attribute__((packed));
 
   struct InputContext {
-    InputControlContext input_control_context;
-    SlotContext slot_context;
-    EndpointContext ep_contexts[31];
+    uint8_t buf[2112];
+
+    InputControlContext* GetInputControlContext() {
+      return reinterpret_cast<InputControlContext*>(buf);
+    }
+    SlotContext* GetSlotContext() {
+      return reinterpret_cast<SlotContext*>(buf + (is_csz1 ? 64 : 32));
+    }
+    EndpointContext* GetEndpointContext(int i) {
+      return reinterpret_cast<EndpointContext*>(buf + (is_csz1 ? 128 : 64) + i * (is_csz1 ? 64 : 32));
+    }
 
     /** @brief Enable the slot context.
      *
      * @return Pointer to the slot context enabled.
      */
     SlotContext* EnableSlotContext() {
-      input_control_context.add_context_flags |= 1;
-      return &slot_context;
+      GetInputControlContext()->add_context_flags |= 1;
+      return GetSlotContext();
     }
 
     /** @brief Enable an endpoint.
@@ -125,8 +142,8 @@ namespace usb::xhci {
      * @return Pointer to the endpoint context enabled.
      */
     EndpointContext* EnableEndpoint(DeviceContextIndex dci) {
-      input_control_context.add_context_flags |= 1u << dci.value;
-      return &ep_contexts[dci.value - 1];
+      GetInputControlContext()->add_context_flags |= 1u << dci.value;
+      return GetEndpointContext(dci.value - 1);
     }
   } __attribute__((packed));
 }
