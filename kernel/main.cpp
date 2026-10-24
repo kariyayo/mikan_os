@@ -24,6 +24,8 @@
 #include "usb/classdriver/mouse.hpp"
 #include "usb/xhci/xhci.hpp"
 #include "usb/xhci/trb.hpp"
+#include "interrupt.hpp"
+#include "asmfunc.h"
 
 // pci.hppで<array>をincludeしたら、<new>にも依存することになったのでコメントアウト
 //
@@ -86,6 +88,22 @@ void SwitchEhci2Xhci(const pci::Device& xhc_dev) {
     pci::WriteConfReg(xhc_dev, 0xd0, ehci2xhci_ports); // XUSB2PR
     Log(kDebug, "SwitchEhci2Xhci: ss = %02, xHCI = %02x\n", superspeed_ports, ehci2xhci_ports);
 }
+
+
+// 割り込みハンドラ
+usb::xhci::Controller* xhc;
+
+__attribute__((interrupt))
+void IntHandlerXHCI(InterruptFrame* frame) {
+    while (xhc->PrimaryEventRing()->HasFront()) {
+        if (auto err = ProcessEvent(*xhc)) {
+            Log(kError, "Error while ProcessEvent: %s at %s:%d\n",
+                    err.Name(), err.File(), err.Line());
+        }
+    }
+    NotifyEndOfInterrupt();
+}
+
 
 extern "C" void KernelMain(const FrameBufferConfig& frame_buffer_config) {
     switch (frame_buffer_config.pixel_format) {
@@ -154,6 +172,22 @@ extern "C" void KernelMain(const FrameBufferConfig& frame_buffer_config) {
         Log(kInfo, "xHC has been found: %d.%d.%d\n", xhc_dev->bus, xhc_dev->device, xhc_dev->function);
     }
 
+    // 割り込みハンドラを登録 (InterruptVector::kXHCIに対する)
+    const uint16_t cs = GetCS();
+    SetIDTEntry(idt[InterruptVector::kXHCI],
+            MakeIDTAttr(DescriptorType::kInterruptGate, 0),
+            reinterpret_cast<uint64_t>(IntHandlerXHCI),
+            cs);
+    LoadIDT(sizeof(idt) - 1, reinterpret_cast<uintptr_t>(&idt[0])); // 割り込み記述子をCPUに登録
+
+    // MSI割り込みを有効化 (InterruptVector::kXHCIを指定する)
+    const uint8_t bsp_local_apic_id =
+        *reinterpret_cast<const uint32_t*>(0xfee00020) >> 24; // CPUコア毎に割り当てられる APIC ID
+    pci::ConfigureMSIFixedDestination(
+            *xhc_dev, bsp_local_apic_id,
+            pci::MSITriggerMode::kLevel, pci::MSIDeliveryMode::kFixed,
+            InterruptVector::kXHCI, 0);
+
     // 追加（実機・PCIeカードだとUEFIが自動的にBit1とBit2を立ててくれなかった
     uint16_t cmd = pci::ReadConfReg(*xhc_dev, 0x04);
     Log(kDebug, "xHC PCI Command before: 0x%04x\n", cmd);
@@ -181,8 +215,12 @@ extern "C" void KernelMain(const FrameBufferConfig& frame_buffer_config) {
         auto err = xhc.Initialize();
         Log(kDebug, "xhc.Initialize: %s\n", err.Name());
     }
+
     Log(kInfo, "xHC starting\n");
     xhc.Run();
+
+    ::xhc = &xhc;
+    __asm__("sti"); // CPUの割り込みを有効化
 
     // USBポートを調べて接続済みポートの設定をする
     usb::HIDMouseDriver::default_observer = MouseObserver;
@@ -202,15 +240,6 @@ extern "C" void KernelMain(const FrameBufferConfig& frame_buffer_config) {
                         err.Name(), err.File(), err.Line());
                 continue;
             }
-        }
-    }
-
-    // マウスを動かした時のイベントに対するするポーリング
-    while (1) {
-        if (auto err = ProcessEvent(xhc)) {
-            Log(kError, "Error while ProcessEvent: %s at %s:%d\n",
-                    err.Name(), err.File(), err.Line());
-//            while (1) __asm__("hlt");
         }
     }
 
