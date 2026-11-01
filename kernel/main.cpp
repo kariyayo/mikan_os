@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "frame_buffer_config.hpp"
+#include "memory_map.hpp"
 #include "graphics.hpp"
 #include "mouse.hpp"
 #include "font.hpp"
@@ -109,7 +110,8 @@ void IntHandlerXHCI(InterruptFrame* frame) {
 }
 
 
-extern "C" void KernelMain(const FrameBufferConfig& frame_buffer_config) {
+extern "C" void KernelMain(const FrameBufferConfig& frame_buffer_config,
+        const MemoryMap* memory_map) {
     switch (frame_buffer_config.pixel_format) {
         case kPixelRGBResv8BitPerColor:
             pixel_writer = new(pixel_writer_buf) RGBResv8BitPerColorPixelWriter{frame_buffer_config};
@@ -143,6 +145,30 @@ extern "C" void KernelMain(const FrameBufferConfig& frame_buffer_config) {
 
     printk("Welcome to MikanOS!\n");
     SetLogLevel(kInfo);
+
+    // memory_mapの確認
+    const std::array available_memory_types{
+        MemoryType::kEfiBootServicesCode,
+        MemoryType::kEfiBootServicesData,
+        MemoryType::kEfiConventionalMemory,
+    };
+    printk("memory_map: %p\n", &memory_map);
+    for (uintptr_t iter = reinterpret_cast<uintptr_t>(memory_map->buffer);
+            iter < reinterpret_cast<uintptr_t>(memory_map->buffer) + memory_map->map_size;
+            iter += memory_map->descriptor_size) {
+        auto desc = reinterpret_cast<MemoryDescriptor*>(iter);
+        for (int i = 0; i < available_memory_types.size(); ++i) {
+            if (desc->type == available_memory_types[i]) {
+                printk("type = %u, phys = %08lx - %08lx, pages = %lu, attr = %08lx\n",
+                        desc->type,
+                        desc->physical_start,
+                        desc->physical_start + desc->number_of_pages * 4096 - 1,
+                        desc->number_of_pages,
+                        desc->attribute);
+            }
+        }
+    }
+
 
     mouse_cursor = new(mouse_cursor_buf) MouseCursor{
         pixel_writer, kDesktopBGColor, {300, 200}
@@ -235,8 +261,7 @@ extern "C" void KernelMain(const FrameBufferConfig& frame_buffer_config) {
 
     for (int i = 1; i <= xhc.MaxPorts(); ++i) {
         auto port = xhc.PortAt(i);
-        Log(kInfo, "Port %d: IsConnected=%d\n", i, port.IsConnected());
-//        Log(kDebug, "Port %d: IsConnected=%d\n", i, port.IsConnected());
+        Log(kDebug, "Port %d: IsConnected=%d\n", i, port.IsConnected());
         if (port.IsConnected()) {
             // IsConnected() で確認した後、ポートのリセットをする
             // USBデバイスは、まだ正常な通信プロトコルに乗れる状態ではなく、
