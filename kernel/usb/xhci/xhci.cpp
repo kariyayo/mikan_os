@@ -91,18 +91,16 @@ namespace {
 
     Error ResetPort(Controller& xhc, Port& port) {
         const bool is_connected = port.IsConnected();
-        Log(kInfo, "ResetPort: port.IsConnected() = %s\n",
+        Log(kDebug, "ResetPort: port.IsConnected() = %s\n",
                 is_connected ? "true" : "false");
-//        Log(kDebug, "ResetPort: port.IsConnected() = %s\n",
-//                is_connected ? "true" : "false");
 
         if (!is_connected) {
             return MAKE_ERROR(Error::kSuccess);
         }
 
-        Log(kInfo, "ResetPort: port_id = %d, addressing_port = %d, port_phase = %d\n",
+        Log(kDebug, "ResetPort: port_id = %d, addressing_port = %d, port_phase = %d\n",
                 port.Number(), addressing_port, port_config_phase[port.Number()]);
-//        ↑追加
+
         if (addressing_port != 0) {
             port_config_phase[port.Number()] = ConfigPhase::kWaitingAddressed;
         } else {
@@ -121,12 +119,9 @@ namespace {
     Error EnableSlot(Controller& xhc, Port& port) {
         const bool is_enabled = port.IsEnabled();
         const bool reset_completed = port.IsPortResetChanged();
-        Log(kInfo, "EnableSlot: port.IsEnabled() = %s, port.IsPortResetChanged() = %s\n",
+        Log(kDebug, "EnableSlot: port.IsEnabled() = %s, port.IsPortResetChanged() = %s\n",
                 is_enabled ? "true" : "false",
                 reset_completed ? "true" : "false");
-//        Log(kDebug, "EnableSlot: port.IsEnabled() = %s, port.IsPortResetChanged() = %s\n",
-//                is_enabled ? "true" : "false",
-//                reset_completed ? "true" : "false");
         if (is_enabled && reset_completed) {
             // RW1C発火。PORTSC.PRCに1を書き込み0消去
             port.ClearPortResetChange();
@@ -145,8 +140,7 @@ namespace {
     }
 
     Error AddressDevice(Controller& xhc, uint8_t port_id, uint8_t slot_id) {
-        Log(kInfo, "AddressDevice: port_id = %d, slot_id = %d\n", port_id, slot_id);
-//        Log(kDebug, "AddressDevice: port_id = %d, slot_id = %d\n", port_id, slot_id);
+        Log(kDebug, "AddressDevice: port_id = %d, slot_id = %d\n", port_id, slot_id);
 
         // slot_idごとに専用のDoorbellレジスタを用意
         xhc.DeviceManager()->AllocDevice(slot_id, xhc.DoorbellRegisterAt(slot_id));
@@ -209,13 +203,12 @@ namespace {
     }
 
     Error OnEvent(Controller& xhc, PortStatusChangeEventTRB& trb) {
-        Log(kInfo, "PortStatusChangeEvent: port_id = %d\n", trb.bits.port_id);
-//        Log(kDebug, "PortStatusChangeEvent: port_id = %d\n", trb.bits.port_id);
+        Log(kDebug, "PortStatusChangeEvent: port_id = %d\n", trb.bits.port_id);
         auto port_id = trb.bits.port_id;
         auto port = xhc.PortAt(port_id);
 
-        Log(kInfo, "PortStatusChangeEvent: port_config_phase = %d\n", port_config_phase[port_id]);
-//        ↑追加
+        Log(kDebug, "PortStatusChangeEvent: port_config_phase = %d\n", port_config_phase[port_id]);
+
         switch (port_config_phase[port_id]) {
             case ConfigPhase::kNotConnected:
                 return ResetPort(xhc, port);
@@ -249,10 +242,8 @@ namespace {
     Error OnEvent(Controller& xhc, CommandCompletionEventTRB& trb) {
         const auto issuer_type = trb.Pointer()->bits.trb_type;
         const auto slot_id = trb.bits.slot_id;
-        Log(kInfo, "CommandCompletionEvent: slot_id = %d, issuer = %s\n",
+        Log(kDebug, "CommandCompletionEvent: slot_id = %d, issuer = %s\n",
                 trb.bits.slot_id, kTRBTypeToName[issuer_type]);
-//        Log(kDebug, "CommandCompletionEvent: slot_id = %d, issuer = %s\n",
-//                trb.bits.slot_id, kTRBTypeToName[issuer_type]);
 
         if (issuer_type == EnableSlotCommandTRB::Type) {
             if (port_config_phase[addressing_port] != ConfigPhase::kEnablingSlot) {
@@ -266,9 +257,8 @@ namespace {
             }
             auto port_id = dev->DeviceContext()->GetSlotContext()->bits.root_hub_port_num;
             if (port_id != addressing_port) {
-                Log(kInfo, "CommandCompletionEvent: port_id = %d, addressing_port = %d\n",
+                Log(kDebug, "CommandCompletionEvent: port_id = %d, addressing_port = %d\n",
                     port_id, addressing_port);
-//                ↑追加
                 return MAKE_ERROR(Error::kInvalidPhase);
             }
             if (port_config_phase[port_id] != ConfigPhase::kAddressingDevice) {
@@ -391,8 +381,8 @@ namespace usb::xhci {
         while (op_->USBCMD.Read().bits.host_controller_reset);
         while (op_->USBSTS.Read().bits.controller_not_ready);
 
-        Log(kInfo, "MaxSlots: %u\n", cap_->HCSPARAMS1.Read().bits.max_device_slots);
-//        Log(kDebug, "MaxSlots: %u\n", cap_->HCSPARAMS1.Read().bits.max_device_slots);
+        Log(kDebug, "MaxSlots: %u\n", cap_->HCSPARAMS1.Read().bits.max_device_slots);
+
         // CONFIGレジスタの設定
         // スロット数を有効化する。コントローラリセット後は0になっているため。
         auto config = op_->CONFIG.Read();
@@ -554,8 +544,7 @@ namespace usb::xhci {
 
         Error err = MAKE_ERROR(Error::kNotImplemented);
         auto event_trb = xhc.PrimaryEventRing()->Front();
-        Log(kInfo, "ProcessEvent: trb_type = %d\n", event_trb->bits.trb_type);
-//        ↑追加
+        Log(kDebug, "ProcessEvent: trb_type = %d\n", event_trb->bits.trb_type);
         if (auto trb = TRBDynamicCast<TransferEventTRB>(event_trb)) {
             // InitializeDevice()実行後など、xHCIチップからの応答
             err = OnEvent(xhc, *trb);
