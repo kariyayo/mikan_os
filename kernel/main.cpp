@@ -28,6 +28,9 @@
 #include "interrupt.hpp"
 #include "asmfunc.h"
 #include "queue.hpp"
+#include "segment.hpp"
+#include "paging.hpp"
+#include "memory_manager.hpp"
 
 // pci.hppで<array>をincludeしたら、<new>にも依存することになったのでコメントアウト
 //
@@ -64,6 +67,9 @@ int printk(const char* format, ...) {
     console->PutString(s);
     return result;
 }
+
+char memory_manager_buf[sizeof(BitmapMemoryManager)];
+BitmapMemoryManager* memory_manager;
 
 char mouse_cursor_buf[sizeof(MouseCursor)];
 MouseCursor* mouse_cursor;
@@ -109,9 +115,17 @@ void IntHandlerXHCI(InterruptFrame* frame) {
     NotifyEndOfInterrupt();
 }
 
+/**
+ * カーネルで使うスタック領域
+ * asmfunc.asmで、UEFIのスタックからRSPレジスタをkernel_main_stackの末尾ににセットしてる
+ */
+alignas(16) uint8_t kernel_main_stack[1024 * 1024];
 
-extern "C" void KernelMain(const FrameBufferConfig& frame_buffer_config,
-        const MemoryMap* memory_map) {
+// asmfunc.asmから kernel_main_stack をセットした後に呼ばれる
+extern "C" void KernelMainNewStack(const FrameBufferConfig& frame_buffer_config_ref,
+        const MemoryMap& memory_map_ref) {
+    FrameBufferConfig frame_buffer_config{frame_buffer_config_ref};
+    MemoryMap memory_map{memory_map_ref};
     switch (frame_buffer_config.pixel_format) {
         case kPixelRGBResv8BitPerColor:
             pixel_writer = new(pixel_writer_buf) RGBResv8BitPerColorPixelWriter{frame_buffer_config};
@@ -146,28 +160,62 @@ extern "C" void KernelMain(const FrameBufferConfig& frame_buffer_config,
     printk("Welcome to MikanOS!\n");
     SetLogLevel(kInfo);
 
-    // memory_mapの確認
-    const std::array available_memory_types{
-        MemoryType::kEfiBootServicesCode,
-        MemoryType::kEfiBootServicesData,
-        MemoryType::kEfiConventionalMemory,
-    };
-    printk("memory_map: %p\n", &memory_map);
-    for (uintptr_t iter = reinterpret_cast<uintptr_t>(memory_map->buffer);
-            iter < reinterpret_cast<uintptr_t>(memory_map->buffer) + memory_map->map_size;
-            iter += memory_map->descriptor_size) {
-        auto desc = reinterpret_cast<MemoryDescriptor*>(iter);
-        for (int i = 0; i < available_memory_types.size(); ++i) {
-            if (desc->type == available_memory_types[i]) {
-                printk("type = %u, phys = %08lx - %08lx, pages = %lu, attr = %08lx\n",
-                        desc->type,
-                        desc->physical_start,
-                        desc->physical_start + desc->number_of_pages * 4096 - 1,
-                        desc->number_of_pages,
-                        desc->attribute);
-            }
+    // セグメンテーションの設定
+    SetupSegments();
+    const uint16_t kernel_cs = 1 << 3;
+    const uint16_t kernel_ss = 2 << 3;
+    SetDSAll(0);
+    SetCSSS(kernel_cs, kernel_ss);
+    SetupIdentityPageTable();
+
+    // メモリ管理
+    ::memory_manager = new(memory_manager_buf) BitmapMemoryManager;
+
+    const auto memory_map_base = reinterpret_cast<uintptr_t>(memory_map.buffer);
+    uintptr_t available_end = 0;
+    // UEFIアプリケーションから渡されたメモリマップをmemory_managerに伝える
+    for (uintptr_t iter = memory_map_base;
+            iter < memory_map_base + memory_map.map_size;
+            iter += memory_map.descriptor_size) {
+        auto desc = reinterpret_cast<const MemoryDescriptor*>(iter);
+        if (available_end < desc->physical_start) {
+            memory_manager->MarkAllocated(
+                    FrameID{available_end / kBytesPerFrame},
+                    (desc->physical_start - available_end) / kBytesPerFrame);
+        }
+        const auto physical_end = desc->physical_start + desc->number_of_pages * kUEFIPageSize;
+        if (IsAvailable(static_cast<MemoryType>(desc->type))) {
+            available_end = physical_end;
+        } else {
+            memory_manager->MarkAllocated(
+                    FrameID{desc->physical_start / kBytesPerFrame},
+                    desc->number_of_pages * kUEFIPageSize / kBytesPerFrame);
         }
     }
+    memory_manager->SetMemoryRange(FrameID{1}, FrameID{available_end / kBytesPerFrame});
+
+//    // memory_mapの確認
+//    const std::array available_memory_types{
+//        MemoryType::kEfiBootServicesCode,
+//        MemoryType::kEfiBootServicesData,
+//        MemoryType::kEfiConventionalMemory,
+//    };
+//    printk("memory_map: %p\n", &memory_map);
+//    for (uintptr_t iter = reinterpret_cast<uintptr_t>(memory_map->buffer);
+//            iter < reinterpret_cast<uintptr_t>(memory_map->buffer) + memory_map->map_size;
+//            iter += memory_map->descriptor_size) {
+//        auto desc = reinterpret_cast<MemoryDescriptor*>(iter);
+//        for (int i = 0; i < available_memory_types.size(); ++i) {
+//            if (desc->type == available_memory_types[i]) {
+//                printk("type = %u, phys = %08lx - %08lx, pages = %lu, attr = %08lx\n",
+//                        desc->type,
+//                        desc->physical_start,
+//                        desc->physical_start + desc->number_of_pages * 4096 - 1,
+//                        desc->number_of_pages,
+//                        desc->attribute);
+//            }
+//        }
+//    }
 
 
     mouse_cursor = new(mouse_cursor_buf) MouseCursor{
