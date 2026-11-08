@@ -11,8 +11,10 @@ class FrameBuffer {
     public:
         Error Initialize(const FrameBufferConfig& config);
 
-        // posで指定された位置に、srcで指定されたバッファをコピーする
-        Error Copy(Vector2D<int> pos, const FrameBuffer& src);
+        // dst_posで指定された位置に、srcで指定されたバッファをコピーする
+        Error Copy(Vector2D<int> dst_pos, const FrameBuffer& src);
+
+        void Move(Vector2D<int> dst_pos, const Rectangle<int>& src);
 
         FrameBufferWriter& Writer() { return *writer_; }
 
@@ -25,6 +27,4 @@ class FrameBuffer {
 
         std::unique_ptr<FrameBufferWriter> writer_{};
 };
-
-int BitsPerPixel(PixelFormat format);
 

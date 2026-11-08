@@ -64,6 +64,12 @@ int printk(const char* format, ...) {
     result = vsprintf(s, format, ap);
     va_end(ap);
 
+    StartLAPICTimer();
+    console->PutString(s);
+    auto elapsed = LAPICTimerElapsed();
+    StopLAPICTimer();
+
+    sprintf(s, "[%9d]", elapsed);
     console->PutString(s);
     return result;
 }
@@ -319,6 +325,7 @@ extern "C" void KernelMainNewStack(const FrameBufferConfig& frame_buffer_config_
             kFrameWidth, kFrameHeight, frame_buffer_config.pixel_format);
     auto bgwriter = bgwindow->Writer();
     DrawDesktop(*bgwriter);
+    console->SetWindow(bgwindow);
     console->SetWriter(bgwriter);
 
     // マウスのレイヤーを描画
