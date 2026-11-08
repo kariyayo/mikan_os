@@ -28,14 +28,16 @@ class Layer {
         Layer& SetWindow(const std::shared_ptr<Window>& window);
         /** @brief 設定されたウィンドウを返す */
         std::shared_ptr<Window> GetWindow() const;
+        /** @brief レイヤーの原点座標を取得する */
+        Vector2D<int> GetPosition() const;
 
         /** @brief レイヤーの位置情報を指定された絶対座標へと更新する。再描画はしない */
         Layer& Move(Vector2D<int> pos);
         /** @brief レイヤーの位置情報を指定された相対座標へと更新する。再描画はしない */
         Layer& MoveRelative(Vector2D<int> pos_diff);
 
-        /** @brief screen に現在設定されているウィンドウの内容を描画する */
-        void DrawTo(FrameBuffer& screen) const;
+        /** @brief 指定された描画先にウィンドウの内容を描画する */
+        void DrawTo(FrameBuffer& screen, const Rectangle<int>& area) const;
 
     private:
         unsigned int id_;
@@ -58,7 +60,12 @@ class LayerManager {
         /**
          * @brief 現在表示状態にあるレイヤーを描画する
          */
-        void Draw() const;
+        void Draw(const Rectangle<int>& area) const;
+
+        /**
+         * @brief 指定したレイヤーに設定されているウィンドウの描画領域内を再描画する
+         */
+        void Draw(unsigned int id) const;
 
         void Move(unsigned int id, Vector2D<int> new_position);
         void MoveRelative(unsigned int, Vector2D<int> pos_diff);
@@ -76,6 +83,7 @@ class LayerManager {
 
     private:
         FrameBuffer* screen_{nullptr};
+        mutable FrameBuffer back_buffer_{};
         std::vector<std::unique_ptr<Layer>> layers_{};
         std::vector<Layer*> layer_stack_{};
         unsigned int latest_id_{0};
